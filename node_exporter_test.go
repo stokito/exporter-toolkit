@@ -108,6 +108,47 @@ func TestHandlingOfDuplicatedMetrics(t *testing.T) {
 	}
 }
 
+func TestHandlingMetrics(t *testing.T) {
+	if _, err := os.Stat(binary); err != nil {
+		t.Skipf("node_exporter binary not available, try to run `make build` first: %s", err)
+	}
+
+	dir, err := ioutil.TempDir("", "node-exporter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(dir)
+
+	content := []byte("dummy_metric 1\n")
+	if err := ioutil.WriteFile(filepath.Join(dir, "a.prom"), content, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	exporter := exec.Command(binary, "--web.listen-address", address, "--collector.textfile.directory", dir)
+	test := func(_ int) error {
+		req, _ := http.NewRequest("OPTIONS", fmt.Sprintf("http://%s/metrics", address), nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		if err := resp.Body.Close(); err != nil {
+			return err
+		}
+		if want, have := http.StatusOK, resp.StatusCode; want != have {
+			return fmt.Errorf("want /metrics status code %d, have %d. Body:\n%s", want, have, b)
+		}
+		return nil
+	}
+
+	if err := runCommandAndTests(exporter, address, test); err != nil {
+		t.Error(err)
+	}
+}
+
 func queryExporter(address string) error {
 	resp, err := http.Get(fmt.Sprintf("http://%s/metrics", address))
 	if err != nil {
